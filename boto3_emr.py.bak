@@ -1,0 +1,63 @@
+import boto3    
+import time
+
+client = boto3.client('emr', region_name='cn-north-1')
+
+response = client.run_job_flow(
+    Name="My Spark Cluster",
+    ReleaseLabel='emr-5.5.0',
+    Instances={
+        'MasterInstanceType': 'm4.xlarge',
+        'SlaveInstanceType': 'm4.xlarge',
+        'InstanceCount': 4,
+        'KeepJobFlowAliveWhenNoSteps': True,
+        'TerminationProtected': False,
+	'Ec2SubnetId':'subnet-0b53ab7c',
+	'Ec2KeyName':'dongaws-2nd-team'
+    },
+    Applications=[
+        {
+            'Name': 'Spark'
+        }
+    ],
+    Steps=[
+    {
+        'Name': 'Setup Debugging',
+        'ActionOnFailure': 'TERMINATE_CLUSTER',
+        'HadoopJarStep': {
+            'Jar': 'command-runner.jar',
+            'Args': ['state-pusher-script']
+        }
+    },
+    {
+        'Name': 'Run Spark',
+        'ActionOnFailure': 'CANCEL_AND_WAIT',
+        'HadoopJarStep': {
+            'Jar': 'command-runner.jar',
+            'Args': ['spark-submit','--class','org.apache.spark.examples.SparkPi','/usr/lib/spark/examples/jars/spark-examples.jar','10']
+        }
+    }
+    ],
+    VisibleToAllUsers=True,
+    JobFlowRole='EMR_EC2_DefaultRole',
+    ServiceRole='EMR_DefaultRole',
+    ScaleDownBehavior='TERMINATE_AT_INSTANCE_HOUR'
+)
+jobId=response['JobFlowId']
+print jobId
+keepquery=True
+while keepquery:
+	query=client.list_steps(ClusterId=jobId)
+	print('Step "%s" Status: "%s"' %(query["Steps"][0]['Name'],query["Steps"][0]['Status']['State']))
+	state=query["Steps"][0]['Status']['State']
+	if state=='COMPLETED':
+		print('step finished successfully')
+		keepquery=False
+	elif state=='FAILED':
+		print('step is failed with reason "%s", message "%s"' %(query["Steps"][0]['Status']['FailureDetails']['Reason'],query["Steps"][0]['Status']['FailureDetails']['Message']))
+		keepquery=False
+	elif state=='CANCELLED' or state=='INTERRUPTED':
+		keepquery=False
+	else:
+		time.sleep(5)		
+
